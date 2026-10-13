@@ -114,14 +114,6 @@ theorem OperationPtr.HierarchicallyReachable.exists_locallyReachable :
   exact ⟨region, OperationPtr.LocallyReachable.of_parent_block
     ((reachable.parent_block opParent).locallyReachable blockParent) opParent⟩
 
-/-- A hierarchically reachable operation has a hierarchically reachable parent block. -/
-@[grind .]
-axiom OperationPtr.HierarchicallyReachable.exists_parent :
-  op.HierarchicallyReachable ctx →
-  ∃ (block : BlockPtr),
-    (op.get! ctx.raw).parent = some block ∧
-    block.HierarchicallyReachable ctx
-
 /-- An operation enclosing a hierarchically reachable block is hierarchically reachable. -/
 theorem OperationPtr.HierarchicallyReachable.of_ancestor_block
     (reachable : block.HierarchicallyReachable ctx) (ancestry : op.Ancestor block ctx) :

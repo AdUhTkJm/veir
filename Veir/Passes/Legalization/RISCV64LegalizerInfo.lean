@@ -76,6 +76,7 @@ def riscv64LegalizerInfo : LegalizerInfo where
     | .g_trunc => [
       .alwaysLegal,
     ]
+    | _ => []
   legalizeCustom
     | .g_add => customLegalizeAddSub .g_add .addw ()
     | .g_sub => customLegalizeAddSub .g_sub .subw ()

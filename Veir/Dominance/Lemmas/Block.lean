@@ -103,6 +103,15 @@ theorem parent_dominated :
   · grind [ProperlyDominatesInSSACFGRegion]
   · grind [ProperlyDominatesInGraphRegion]
 
+/-- Blocks related by same-region dominance share a root. -/
+theorem rootedAt_iff
+    (dominance : dominator.ProperlyDominatesInRegion dominated region ctx) :
+    dominator.RootedAt root ctx ↔ dominated.RootedAt root ctx := by
+  have dominatorParent := dominance.parent_dominator
+  have dominatedParent := dominance.parent_dominated
+  exact IRNode.Ancestor.rootedAt_iff_of_common_ancestor
+    (ancestor := .region region) (.of_parent (by grind)) (.of_parent (by grind))
+
 /--
 If a `source` block properly dominates a distinct `target`, then it properly dominates
 a distinct predecessor of that successor edge.

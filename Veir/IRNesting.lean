@@ -261,6 +261,15 @@ theorem of_getParentOp!_eq_some {child parent : OperationPtr}
   apply IRNode.Ancestor.trans_parent_ancestor (middle := .operation child); grind
   grind
 
+/-- An operation's parent region is an ancestor through its parent block. -/
+theorem of_getParentRegion!_eq_some {op : OperationPtr} {region : RegionPtr}
+    (parentRegion : op.getParentRegion! ctx.raw = some region) :
+    IRNode.Ancestor (.region region) (.operation op) ctx := by
+  obtain ⟨block, opParent, blockParent⟩ :=
+    OperationPtr.getParentRegion!_eq_some_iff.mp parentRegion
+  exact Ancestor.trans_parent_ancestor (middle := .block block)
+    (by grind) (.of_parent (by grind))
+
 /-- An ancestry relation is either proper or relates a node to itself. -/
 theorem proper_or_eq
     (ancestry : ancestor.Ancestor descendant ctx) :
@@ -361,6 +370,22 @@ theorem RootedAt.of_ancestor {node ancestor : IRNode}
     refine ⟨?_, hRooted.2⟩
     have hNe : root ≠ descendant := by grind [RootedAt]
     exact (hRooted.1.toProperAncestor hNe).ancestor_of_parent_descendant immediate
+
+/-- An ancestor and its descendant share a root. -/
+theorem Ancestor.rootedAt_iff {ancestor node : IRNode}
+    (ancestry : ancestor.Ancestor node ctx) :
+    ancestor.RootedAt root ctx ↔ node.RootedAt root ctx := by
+  constructor
+  · intro rooted
+    exact ⟨rooted.ancestor.trans ancestry, rooted.root_parent_eq⟩
+  · intro rooted
+    exact rooted.of_ancestor ancestry
+
+/-- Nodes with a common ancestor share a root. -/
+theorem Ancestor.rootedAt_iff_of_common_ancestor {ancestor node₁ node₂ : IRNode}
+    (first : ancestor.Ancestor node₁ ctx) (second : ancestor.Ancestor node₂ ctx) :
+    node₁.RootedAt root ctx ↔ node₂.RootedAt root ctx :=
+  first.rootedAt_iff.symm.trans second.rootedAt_iff
 
 /-- Nodes with the same parent share a root. -/
 theorem RootedAt.of_same_parent {node sibling parent : IRNode}

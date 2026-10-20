@@ -820,6 +820,32 @@ def Llvm.verifyAggregatePosition (containerType : TypeAttr) (position : DenseArr
   return some current
 
 /--
+  Check the type path of a GEP, requiring every struct index to be a constant
+  within the field list. The first index steps over whole objects, and array
+  and vector indices need not be in bounds. As with `verifyAggregatePosition`,
+  stop when an opaque struct or unresolved reference hides the remaining path.
+-/
+private def Llvm.verifyGEPIndices (elemType : TypeAttr) (indices : DenseArrayAttr) :
+    Except String PUnit := do
+  let mut current := elemType.val
+  for pos in [1:indices.values.size] do
+    let index := indices.values[pos]!
+    match current with
+    | .llvmStructType structType =>
+      if index = -2147483648 then
+        throw s!"expected index {pos} indexing a struct to be constant"
+      if index < 0 then
+        throw s!"index {pos} indexing a struct is out of bounds"
+      let some field := structType.body[index.toNat]?
+        | throw s!"index {pos} indexing a struct is out of bounds"
+      current := field
+    | .llvmArrayType arrayType => current := arrayType.type
+    | .vectorType vectorType => current := vectorType.elementType
+    | _ =>
+      if isOpaqueLLVMStruct current then return ()
+      throw s!"type {current} cannot be indexed (index #{pos})"
+
+/--
 Verify the local invariants of an `llvm` operation in any operation-info type
 containing the `llvm` dialect.
 -/
@@ -1230,7 +1256,7 @@ def Llvm.verifyLocalInvariants {OpInfo : Type} [IsOpCode OpInfo]
       throw "Expected 0 regions"
     if op.getNumSuccessors ctx.raw opIn ≠ 0 then
       throw "Expected 0 successors"
-    pure ()
+    Llvm.verifyGEPIndices props.elem_type props.rawConstantIndices
   | .call_intrinsic => do
     op.checkIsNonNullIntegerType ctx opIn
     op.verifyLLVMCompatibleTypes ctx opIn
@@ -1649,14 +1675,18 @@ def Llvm.interpretOp' (opType : Veir.Llvm) (properties : propertiesOf opType)
       else mem.memmove dst src len.toNat
     return (#[], mem, none)
   | .getelementptr => do
-    /- only supports exactly one dynamic index for now -/
-    let [.addr ptr, .int _ idx] := operands.toList | none
-    /- The index scales by the element's stride, matching the `getTypeAllocSize`
-       that `isel-riscv64` uses to lower this operation. -/
-    let size ← layout.getTypeAllocSize properties.elem_type.val
-    match ptr, idx with
-    | .val ptr, .val idx => return (#[.addr (.val ⟨ptr.object, UInt64.ofNat (ptr.address.toNat + idx.toNat * size)⟩)], mem, none)
-    | _, _ => return (#[.addr .poison], mem, none)
+    let .addr ptr :: _ := operands.toList | none
+    /- Decompose the address into a constant offset and scaled dynamic indices. -/
+    let indices := GEPIndex.decode properties.rawConstantIndices.values (operands.extract 1)
+    let (offset, dynamic) ← layout.gepOffsets properties.elem_type.val indices
+    let .val ptr := ptr | return (#[.addr .poison], mem, none)
+    let mut addr := (ptr.address.toNat : Int) + offset
+    for (idx, stride) in dynamic do
+      /- An index is signed, and sign-extended to the pointer width. -/
+      let .int _ idx := idx | none
+      let .val idx := idx | return (#[.addr .poison], mem, none)
+      addr := addr + idx.toInt * stride
+    return (#[.addr (.val ⟨ptr.object, UInt64.ofInt addr⟩)], mem, none)
   | .freeze => do
     let [val] := operands.toList | none
     match val with

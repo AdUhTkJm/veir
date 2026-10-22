@@ -374,6 +374,24 @@ deriving Inhabited, Repr, DecidableEq, Hashable
 public def ModArithType.bitwidth (ty : ModArithType) : Nat :=
   ty.modulus.type.bitwidth
 
+namespace SMT
+
+/--
+  An SMT sort type, i.e. `!smt.bool` or `!smt.bv<width>`. Sorts are the types of
+  the SMT dialect; they mirror MLIR's `!smt.bool` and `!smt.bv<width>`.
+-/
+inductive SortType where
+| bool
+| bv (width : Nat)
+deriving Inhabited, Repr, DecidableEq, Hashable
+
+/-- The width of a bit-vector sort, if this sort is one. -/
+def SortType.bvWidth? : SortType → Option Nat
+| .bool => none
+| .bv width => some width
+
+end SMT
+
 namespace PDL
 
 /--
@@ -791,6 +809,8 @@ inductive Attribute
 | matchOptionalType (type : Match.OptionalType)
 /-- CIRCT seq clock type -/
 | seqClockType (type : Seq.ClockType)
+/-- SMT sort type (`!smt.bool` or `!smt.bv<width>`) -/
+| smtSortType (type : SMT.SortType)
 deriving Inhabited
 
 end
@@ -1098,6 +1118,11 @@ instance : ToString Seq.ClockType where
   toString _ :=
     s!"!seq.clock"
 
+instance : ToString SMT.SortType where
+  toString type := match type with
+    | .bool => "!smt.bool"
+    | .bv width => s!"!smt.bv<{width}>"
+
 mutual
 
 partial def VectorType.toString (type : VectorType) : String :=
@@ -1244,6 +1269,7 @@ partial def Attribute.toString (attr : Attribute) : String :=
   | .pdlTypeType type => ToString.toString type
   | .matchOptionalType type => type.toString
   | .seqClockType type => ToString.toString type
+  | .smtSortType type => ToString.toString type
 
 end
 
@@ -1785,6 +1811,8 @@ def Attribute.decEq (attr1 attr2 : @& Attribute) : Decidable (attr1 = attr2) := 
     exact IsAttr.decEqAgainst x attr2 (Match.OptionalType.decEq x)
   case seqClockType x =>
     exact IsAttr.decEqAgainst x attr2 (decEq x)
+  case smtSortType x =>
+    exact IsAttr.decEqAgainst x attr2 (decEq x)
 termination_by sizeOf attr1
 decreasing_by
   all_goals exact Nat.lt_add_of_pos_left (by decide)
@@ -1871,6 +1899,7 @@ def isType (attr : Attribute) : Bool :=
   | .pdlTypeType _ => true
   | .matchOptionalType _ => true
   | .seqClockType _ => true
+  | .smtSortType _ => true
 
 /--
   Returns the size, in bits, that an LLVM type would use if stored to memory.
@@ -1970,6 +1999,8 @@ theorem isType_pdlValueType type : (Attribute.of PDL.ValueType type).isType = tr
 theorem isType_pdlTypeType type : (Attribute.of PDL.TypeType type).isType = true := by rfl
 @[simp, grind =]
 theorem isType_seqClockType type : (Attribute.of Seq.ClockType type).isType = true := by rfl
+@[simp, grind =]
+theorem isType_smtSortType type : (Attribute.of SMT.SortType type).isType = true := by rfl
 
 end Attribute
 
@@ -2194,6 +2225,7 @@ type_attribute_instance PDL.OperationType => Attribute.pdlOperationType
 type_attribute_instance PDL.ValueType => Attribute.pdlValueType
 type_attribute_instance PDL.TypeType => Attribute.pdlTypeType
 type_attribute_instance Seq.ClockType => Attribute.seqClockType
+type_attribute_instance SMT.SortType => Attribute.smtSortType
 
 instance : CoeDep (Option Nat → RegisterType) RegisterType.mk TypeAttr where
   coe := TypeAttr.of RegisterType (.mk none)

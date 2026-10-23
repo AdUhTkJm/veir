@@ -18,7 +18,8 @@ namespace Veir
   their original type at the start of the block.
 
   A branch is left alone, together with the blocks it targets, when its
-  operands do not fit a register. In strict mode, the default, the pass then
+  operands do not fit a register or when a target is also reached by a terminator
+  the pass does not rewrite. In strict mode, the default, the pass then
   fails; with `strict=false` the branch survives alongside the lowered ones.
 -/
 
@@ -46,10 +47,45 @@ def castToReg (ip : InsertPoint) (acc : WfIRContext OpCode × Array OperationPtr
     #[] default ip | throw "isel-br-riscv64: cannot cast a branch operand to a register"
   return (ctx, casts.push cast)
 
+/-- Whether `op` is a branch the pass rewrites, or a RISC-V branch that is already lowered. -/
+def isLoweredBranch (ctx : WfIRContext OpCode) (op : OperationPtr) : Bool :=
+  match op.getOpType! ctx.raw with
+  | .llvm .br | .llvm .cond_br | .riscv_cf _ => true
+  | _ => false
+
+/--
+  The blocks that a terminator the pass does not rewrite branches to. Their
+  arguments keep their types, since that terminator keeps passing them.
+-/
+def blockedTargets (ctx : WfIRContext OpCode) : List BlockPtr :=
+  ctx.raw.operations.keys.flatMap fun op =>
+    if isLoweredBranch ctx op then [] else (op.getSuccessors! ctx.raw).toList
+
 /-- Whether the arguments of `block` all fit a register, so it can be converted. -/
 def isConvertible (ctx : WfIRContext OpCode) (block : BlockPtr) : Bool :=
   (List.range (block.getNumArguments! ctx.raw)).all fun i =>
     fitsRegister ((ValuePtr.blockArgument { block := block, index := i }).getType! ctx.raw)
+
+/--
+  Remove from `convertible` the targets of every `llvm.br` and `llvm.cond_br`
+  among `ops` that has a target outside of it. Such a branch is left alone and
+  keeps passing values of their original types, so none of its targets may be
+  converted. Removing a block can leave another branch alone, so this repeats
+  until nothing changes, at most `fuel` times.
+-/
+def dropTargetsOfUnlowered (ctx : WfIRContext OpCode) (ops : List OperationPtr) :
+    Nat → List BlockPtr → List BlockPtr
+  | 0, convertible => convertible
+  | fuel + 1, convertible =>
+    let dropped := ops.flatMap fun op =>
+      let opType := op.getOpType! ctx
+      let targets := (op.getSuccessors! ctx.raw).toList
+      if (opType = OpCode.llvm .br || opType = OpCode.llvm .cond_br) &&
+          !targets.all convertible.contains then targets else []
+    if dropped.any convertible.contains then
+      dropTargetsOfUnlowered ctx ops fuel (convertible.filter (!dropped.contains ·))
+    else
+      convertible
 
 /--
   Replace the terminator `op` by its RISC-V counterpart if it is an `llvm.br`,
@@ -136,7 +172,10 @@ def convertBlock (convertible : BlockPtr → Bool) (ctx : WfIRContext OpCode) (b
 def convertModule (ctx : WfIRContext OpCode) : Except String (WfIRContext OpCode) := do
   let ops := ctx.raw.operations.keys
   let blocks := ctx.raw.blocks.keys
-  let convertible := blocks.filter (isConvertible ctx)
+  let blocked := blockedTargets ctx
+  -- Each round that changes something removes a block, so this many suffice.
+  let convertible := dropTargetsOfUnlowered ctx ops (blocks.length + 1)
+    (blocks.filter fun block => !blocked.contains block && isConvertible ctx block)
   let ctx ← ops.foldlM (convertBranch convertible.contains) ctx
   blocks.foldlM (convertBlock convertible.contains) ctx
 
@@ -147,8 +186,11 @@ def ISelBrPass.impl (strict : Bool) (ctx : WfIRContext OpCode) (op : OperationPt
   let ctx ← match convertModule ctx with
     | .ok ctx => pure ctx
     | .error message => throw message
-  -- In strict mode, no LLVM branch may remain.
+  -- In strict mode, no branch but a RISC-V one may remain.
   if strict then
+    for o in ctx.raw.operations.keys do
+      if !isLoweredBranch ctx o && o.getNumSuccessors! ctx.raw ≠ 0 then
+        throw "isel-br-riscv64: cannot lower a branch other than llvm.br or llvm.cond_br"
     for o in ctx.raw.operations.keys do
       let opType := o.getOpType! ctx.raw
       if opType = OpCode.llvm .br || opType = OpCode.llvm .cond_br then
@@ -160,6 +202,6 @@ public def IselBrRISCV64 : Pass OpCode :=
     description :=
       "Lower LLVM IR branch instructions to RISCV 64 assembly."
     options := .ofList [
-      ("strict", { description := "Fail if not all LLVM branches could be lowered.",
+      ("strict", { description := "Fail if not all branches could be lowered.",
                    defaultValue := true })]
     run := fun options => ISelBrPass.impl ((options.get? "strict").getD true) }

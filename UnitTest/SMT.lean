@@ -8,6 +8,41 @@ private def bv8 : TypeAttr := TypeAttr.of SMT.SortType (.bv 8)
 private def bv16 : TypeAttr := TypeAttr.of SMT.SortType (.bv 16)
 private def boolTy : TypeAttr := TypeAttr.of SMT.SortType .bool
 
+/-- `smt.bv.constant` produces the corresponding constant SMT term. -/
+private def testSMTBvConstant : String := Id.run do
+  let props : SMTBitVectorConstantProperties :=
+    { value := SMT.BitVectorAttr.mk 92 8 }
+  let .ok results :=
+    (foldEvaluate (.smt .bv__constant) props #[bv8] #[]
+      : Interp (Array RuntimeValue))
+    | return "smt.bv.constant did not evaluate"
+  if results.toList ≠ [.smt (.bvConst 8 92)] then
+    return "smt.bv.constant produced an unexpected term"
+  return "ok"
+
+/--
+info: "ok"
+-/
+#guard_msgs in
+#eval! testSMTBvConstant
+
+/-- A constant whose declared result sort disagrees with its attribute is
+    rejected by the interpreter. -/
+private def testSMTBvConstantSortMismatch : String := Id.run do
+  let props : SMTBitVectorConstantProperties :=
+    { value := SMT.BitVectorAttr.mk 92 8 }
+  let .fail _ :=
+    (foldEvaluate (.smt .bv__constant) props #[bv16] #[]
+      : Interp (Array RuntimeValue))
+    | return "smt.bv.constant accepted a result of the wrong sort"
+  return "ok"
+
+/--
+info: "ok"
+-/
+#guard_msgs in
+#eval! testSMTBvConstantSortMismatch
+
 /-- `smt.bv.add` builds the corresponding SMT term instead of computing a
     bit-vector. -/
 private def testSMTBvAdd : String := Id.run do

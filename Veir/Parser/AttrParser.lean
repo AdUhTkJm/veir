@@ -1081,6 +1081,34 @@ def parseOptionalSMTSortType : AttrParserM (Option TypeAttr) := do
     throwAtCurrentPos "SMT bit-vector width must be positive"
   return some (TypeAttr.of SMT.SortType (.bv width.toNat))
 
+/--
+  Parse an SMT bit-vector constant attribute, if present.
+  Its syntax is `#smt.bv<value> : !smt.bv<width>`, e.g. `#smt.bv<92> : !smt.bv<8>`.
+  The explicit type suffix is mandatory, as in MLIR, because the value alone does
+  not determine the bit-width. The value must be non-negative and fit the width.
+-/
+def parseOptionalSMTBitVectorAttr : AttrParserM (Option SMT.BitVectorAttr) := do
+  let token ← peekToken
+  let .hashIdent := token.kind | return none
+  let input := (← getThe ParserState).input
+  let name := { token.slice with start := token.slice.start + 1 }.of input
+  if name ≠ "smt.bv".toByteArray then return none
+  let _ ← consumeToken
+  parsePunctuation "<"
+  let value ← parseInteger false false
+  parsePunctuation ">"
+  if value < 0 then
+    throwAtCurrentPos "SMT bit-vector value must be non-negative"
+  parsePunctuation ":"
+  let some sortType ← parseOptionalSMTSortType
+    | throwAtCurrentPos "#smt.bv<...> expects a bit-vector type annotation"
+  let .smtSortType (.bv width) := sortType.val
+    | throwAtCurrentPos "#smt.bv<...> type annotation must be a bit-vector sort"
+  let attr := SMT.BitVectorAttr.mk value.toNat width
+  if !attr.isValid then
+    throwAtCurrentPos "SMT bit-vector value does not fit in the given bit-width"
+  return some attr
+
 /-- A parsed entry in an LLVM function type's parameter list. -/
 inductive LLVMFuncParam
   | type (ty : TypeAttr)
@@ -1487,6 +1515,8 @@ partial def parseOptionalUnregisteredAttrType (attr : Attribute) : AttrParserM A
   Parse an attribute, if present.
 -/
 partial def parseOptionalAttribute : AttrParserM (Option Attribute) := do
+  if let some smtBitVectorAttr ← parseOptionalSMTBitVectorAttr then
+    return some smtBitVectorAttr
   if let some feltConstAttr ← parseOptionalFeltConstAttr then
     return some feltConstAttr
   if let some cirIntAttr ← parseOptionalCirIntAttr then

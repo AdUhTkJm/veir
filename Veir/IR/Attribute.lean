@@ -390,6 +390,24 @@ def SortType.bvWidth? : SortType → Option Nat
 | .bool => none
 | .bv width => some width
 
+/--
+  An SMT bit-vector constant attribute, e.g. `#smt.bv<5> : !smt.bv<4>`.
+  It mirrors MLIR's `mlir::smt::BitVectorAttr`: a non-negative integer value
+  together with the bit-width of the sort it belongs to.
+-/
+structure BitVectorAttr where
+  value : Nat
+  width : Nat
+deriving Inhabited, Repr, DecidableEq, Hashable
+
+/-- The SMT sort of a bit-vector attribute. -/
+def BitVectorAttr.sort (attr : BitVectorAttr) : SortType :=
+  .bv attr.width
+
+/-- Whether the value of a bit-vector attribute fits into its bit-width. -/
+def BitVectorAttr.isValid (attr : BitVectorAttr) : Bool :=
+  attr.width > 0 && attr.value >>> attr.width == 0
+
 end SMT
 
 namespace PDL
@@ -824,6 +842,8 @@ inductive Attribute
 | seqFirMemType (type : Seq.FirMemType)
 /-- SMT sort type (`!smt.bool` or `!smt.bv<width>`) -/
 | smtSortType (type : SMT.SortType)
+/-- SMT bit-vector constant attribute (`#smt.bv<value> : !smt.bv<width>`) -/
+| smtBitVectorAttr (attr : SMT.BitVectorAttr)
 deriving Inhabited
 
 end
@@ -1143,6 +1163,9 @@ instance : ToString SMT.SortType where
     | .bool => "!smt.bool"
     | .bv width => s!"!smt.bv<{width}>"
 
+instance : ToString SMT.BitVectorAttr where
+  toString attr := s!"#smt.bv<{attr.value}> : !smt.bv<{attr.width}>"
+
 mutual
 
 partial def VectorType.toString (type : VectorType) : String :=
@@ -1291,6 +1314,7 @@ partial def Attribute.toString (attr : Attribute) : String :=
   | .seqClockType type => ToString.toString type
   | .seqFirMemType type => ToString.toString type
   | .smtSortType type => ToString.toString type
+  | .smtBitVectorAttr attr => ToString.toString attr
 
 end
 
@@ -1836,6 +1860,8 @@ def Attribute.decEq (attr1 attr2 : @& Attribute) : Decidable (attr1 = attr2) := 
     exact IsAttr.decEqAgainst x attr2 (decEq x)
   case smtSortType x =>
     exact IsAttr.decEqAgainst x attr2 (decEq x)
+  case smtBitVectorAttr x =>
+    exact IsAttr.decEqAgainst x attr2 (decEq x)
 termination_by sizeOf attr1
 decreasing_by
   all_goals exact Nat.lt_add_of_pos_left (by decide)
@@ -1924,6 +1950,7 @@ def isType (attr : Attribute) : Bool :=
   | .seqClockType _ => true
   | .seqFirMemType _ => true
   | .smtSortType _ => true
+  | .smtBitVectorAttr _ => false
 
 /--
   Returns the size, in bits, that an LLVM type would use if stored to memory.
@@ -2027,6 +2054,8 @@ theorem isType_seqClockType type : (Attribute.of Seq.ClockType type).isType = tr
 theorem isType_seqFirMemType type : (Attribute.of Seq.FirMemType type).isType = true := by rfl
 @[simp, grind =]
 theorem isType_smtSortType type : (Attribute.of SMT.SortType type).isType = true := by rfl
+@[simp, grind =]
+theorem isType_smtBitVectorAttr attr : (Attribute.of SMT.BitVectorAttr attr).isType = false := by rfl
 
 end Attribute
 

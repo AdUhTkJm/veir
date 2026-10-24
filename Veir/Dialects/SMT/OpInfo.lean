@@ -18,6 +18,7 @@ public section
 @[opcodes]
 inductive SMT where
 | bv__add
+| bv__constant
 | bv__neg
 | eq
 deriving Inhabited, Repr, Hashable, DecidableEq
@@ -25,17 +26,23 @@ deriving Inhabited, Repr, Hashable, DecidableEq
 @[expose, properties_of]
 def SMT.propertiesOf (op : SMT) : Type :=
 match op with
+| .bv__constant => SMTBitVectorConstantProperties
 | .bv__add | .bv__neg | .eq => Unit
 
 def SMT.fromAttrDict
-    (op : SMT) (_attrDict : Std.HashMap ByteArray Attribute) :
+    (op : SMT) (attrDict : Std.HashMap ByteArray Attribute) :
     Except String (SMT.propertiesOf op) := by
-  cases op <;> exact .ok ()
+  cases op
+  case bv__constant => exact SMTBitVectorConstantProperties.fromAttrDict attrDict
+  all_goals exact .ok ()
 
 def SMT.toAttrDict
-    (op : SMT) (_props : SMT.propertiesOf op) :
+    (op : SMT) (props : SMT.propertiesOf op) :
     Std.HashMap ByteArray Attribute :=
   match op with
+  | .bv__constant =>
+    (Std.HashMap.emptyWithCapacity 1).insert
+      "value".toUTF8 (Attribute.smtBitVectorAttr props.value)
   | .bv__add | .bv__neg | .eq => Std.HashMap.emptyWithCapacity 0
 
 @[get_effects]
@@ -47,8 +54,10 @@ def SMT.getEffects
 def SMT.propagatesPoison (_op : SMT) : Bool :=
   false
 
-def SMT.isConstantLike (_op : SMT) : Bool :=
-  false
+def SMT.isConstantLike (op : SMT) : Bool :=
+  match op with
+  | .bv__constant => true
+  | _ => false
 
 def SMT.hasSSADominance (_op : SMT) (_index : Nat) : Bool :=
   true
@@ -68,19 +77,20 @@ def TypeAttr.smtSort? (ty : TypeAttr) : Option SMT.SortType :=
   | .smtSortType sortType => some sortType
   | _ => none
 
-/--
-  Verify the local invariants of an `smt` operation in any operation-info type
-  containing the `smt` dialect.
-
-  `smt.bv.add` and `smt.bv.neg` preserve the sort of their operands, while
-  `smt.eq` takes two terms of the same sort and produces an `!smt.bool`.
--/
 @[expose]
 def SMT.verifyLocalInvariants {OpInfo : Type} [IsOpCode OpInfo] [HasDialect OpInfo SMT]
     (opType : SMT) (op : OperationPtr) (ctx : WfIRContext OpInfo)
     (opIn : op.InBounds ctx.raw) : Except String PUnit := do
   let instrName := String.fromUTF8! (IsOpCode.name (op.getOpType ctx.raw opIn))
   match opType with
+  | .bv__constant => do
+    op.verifyPlainOpCounts ctx opIn 0 1
+    let props := op.getProperties! ctx.raw SMT.bv__constant
+    if !props.value.isValid then
+      throw s!"{instrName}: Bit-vector value does not fit in the given bit-width"
+    let expected : TypeAttr := TypeAttr.of SMT.SortType (.bv props.value.width)
+    op.verifyResultTypeMatches ctx expected
+      s!"{instrName}: Expected result 0 type to match the constant's bit-vector sort"
   | .bv__add => do
     op.verifyPlainOpCounts ctx opIn 2 1
     let lhsType := (op.getOperand! ctx.raw 0).getType! ctx.raw
@@ -122,6 +132,13 @@ def SMT.interpretOp' (opType : SMT) (_properties : SMT.propertiesOf opType)
     (_blockOperands : Array BlockPtr)
     : Interp ((Array RuntimeValue) × Option ControlFlowAction) :=
   match opType with
+  | .bv__constant => do
+    if !_properties.value.isValid then none
+    let some resType := resultTypes[0]? | none
+    let width := _properties.value.width
+    let expected : TypeAttr := TypeAttr.of SMT.SortType (.bv width)
+    if resType.val ≠ expected.val then none
+    return (#[.smt (.bvConst width (BitVec.ofNat width _properties.value.value))], none)
   | .bv__add => do
     let [.smt lhs, .smt rhs] := operands.toList | none
     let some width := lhs.bvWidth? | none

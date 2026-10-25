@@ -80,7 +80,7 @@ RUN git clone --depth 1 https://github.com/llvm/llvm-project /tmp/llvm \
  && cmake -S /tmp/llvm/llvm -B /tmp/llvm/build -GNinja \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX=/usr/local \
-      -DLLVM_TARGETS_TO_BUILD=host \
+      -DLLVM_TARGETS_TO_BUILD="host;RISCV" \
       -DLLVM_ENABLE_PROJECTS="clang;mlir" \
       -DLLVM_ENABLE_RTTI=ON \
       -DLLVM_ENABLE_EH=ON \
@@ -91,6 +91,7 @@ RUN git clone --depth 1 https://github.com/llvm/llvm-project /tmp/llvm \
       # libraries are a large part of what the unrestricted build compiles.
       # `llubi` is an ordinary `add_llvm_tool` in `llvm/tools/llubi`, so it is
       # not one of the targets this drops.
+      -DLLVM_INSTALL_UTILS=ON \
       -DLLVM_INCLUDE_TESTS=OFF \
       -DCLANG_INCLUDE_TESTS=OFF \
       -DMLIR_INCLUDE_TESTS=OFF \
@@ -149,7 +150,7 @@ RUN curl -fsSL https://elan.lean-lang.org/elan-init.sh \
 #
 # GMP is checked by compiling against it rather than by looking for its header.
 RUN status=0; \
-    for tool in mlir-opt clang llvm-config llubi uv lit filecheck elan; do \
+    for tool in mlir-opt clang llvm-config llubi split-file uv lit filecheck elan; do \
       if out=$("${tool}" --version 2>&1); then \
         echo "ok   ${tool}: $(printf '%s' "${out}" | head -1)"; \
       else \

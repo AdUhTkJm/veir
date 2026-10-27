@@ -3,6 +3,9 @@ module
 public import Veir.IR.Simp
 public import Veir.IR.OpInfo
 public import Veir.Verifier.Basic
+public import Veir.Interpreter.RuntimeValue.Basic
+public import Veir.Interpreter.Interp
+public import Veir.Dialects.SMT.Properties
 
 meta import Veir.Meta.OpCode
 
@@ -110,6 +113,37 @@ def SMT.verifyLocalInvariants {OpInfo : Type} [IsOpCode OpInfo] [HasDialect OpIn
     let expected : TypeAttr := TypeAttr.of SMT.SortType .bool
     op.verifyResultTypeMatches ctx expected
       s!"{instrName}: Expected result 0 to have type !smt.bool"
+
+/--
+  Build a symbolic expression.
+-/
+def SMT.interpretOp' (opType : SMT) (_properties : SMT.propertiesOf opType)
+    (resultTypes : Array TypeAttr) (operands : Array RuntimeValue)
+    (_blockOperands : Array BlockPtr)
+    : Interp ((Array RuntimeValue) × Option ControlFlowAction) :=
+  match opType with
+  | .bv__add => do
+    let [.smt lhs, .smt rhs] := operands.toList | none
+    let some width := lhs.bvWidth? | none
+    if rhs.bvWidth? ≠ some width then none
+    let some resType := resultTypes[0]? | none
+    let expected : TypeAttr := TypeAttr.of SMT.SortType (.bv width)
+    if resType.val ≠ expected.val then none
+    return (#[.smt (.bvAdd width lhs rhs)], none)
+  | .bv__neg => do
+    let [.smt operand] := operands.toList | none
+    let some width := operand.bvWidth? | none
+    let some resType := resultTypes[0]? | none
+    let expected : TypeAttr := TypeAttr.of SMT.SortType (.bv width)
+    if resType.val ≠ expected.val then none
+    return (#[.smt (.bvNeg width operand)], none)
+  | .eq => do
+    let [.smt lhs, .smt rhs] := operands.toList | none
+    if lhs.sort ≠ rhs.sort then none
+    let some resType := resultTypes[0]? | none
+    let expected : TypeAttr := TypeAttr.of SMT.SortType .bool
+    if resType.val ≠ expected.val then none
+    return (#[.smt (.eq lhs rhs)], none)
 
 instance : HasOpInfo SMT where
   verifyLocalInvariants := SMT.verifyLocalInvariants

@@ -3,6 +3,7 @@ module
 public import Veir.IR.Simp
 public import Veir.IR.OpInfo
 public import Veir.Verifier.Basic
+public import Veir.Dialects.SMT.Properties
 
 meta import Veir.Meta.OpCode
 

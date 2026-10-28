@@ -678,6 +678,7 @@ def OpCode.materializeConstant (opCode : OpCode) (value : RuntimeValue)
     | .mod_arith op => Mod_Arith.materializeConstant op value type
     | .riscv op => Riscv.materializeConstant op value type
     | .felt op => Felt.materializeConstant op value type
+    | .gmir op => GMIR.materializeConstant op value type
     -- Listed rather than folded into a catch-all so that adding a dialect
     -- fails to compile until it decides how, or whether, to materialize.
     | .riscv_cf _ | .riscv_stack _ | .rv64 _ | .cf _ | .builtin _

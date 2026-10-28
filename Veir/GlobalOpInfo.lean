@@ -683,7 +683,7 @@ def OpCode.materializeConstant (opCode : OpCode) (value : RuntimeValue)
     | .riscv_cf _ | .riscv_stack _ | .rv64 _ | .cf _ | .builtin _
     | .verif _
     | .func _ | .datapath _ | .pdl _ | .test _ | .cir _ | .io _ | .include _
-    | .function _ | .seq _ | .smt _ | .gmir _ => none
+    | .function _ | .seq _ | .smt _ => none
   guard materialized.fst.isConstantLike
   return materialized
 

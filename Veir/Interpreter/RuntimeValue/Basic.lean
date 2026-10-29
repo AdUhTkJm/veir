@@ -23,8 +23,8 @@ inductive RuntimeValue where
 | reg (value : Data.RISCV.Reg)
 /-- A canonical natural-number representative in the field identified by `fieldType`. -/
 | felt (fieldType : FeltType) (value : Nat)
-/-- A symbolic SMT term, produced by an operation of the SMT dialect. -/
-| smt (term : Data.SMT.Term)
+/-- A symbolic SMT term. -/
+| smt (sort : SMT.SortType) (term : Data.SMT.Term sort)
 deriving Inhabited, BEq, DecidableEq
 
 instance : ToString RuntimeValue where
@@ -35,7 +35,7 @@ instance : ToString RuntimeValue where
     | .addr val => ToString.toString val
     | .reg val => ToString.toString val
     | .felt fieldType val => s!"{val} : {fieldType}"
-    | .smt term => ToString.toString term
+    | .smt _ term => ToString.toString term
 
 /--
   Whether a runtime value is wholly poison. A `byte` is wholly poison when

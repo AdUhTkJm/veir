@@ -115,7 +115,44 @@ def SMT.verifyLocalInvariants {OpInfo : Type} [IsOpCode OpInfo] [HasDialect OpIn
       s!"{instrName}: Expected result 0 to have type !smt.bool"
 
 /--
+  Build the term of `smt.bv.add`.
+-/
+def SMT.bvAddTerm? : (lhsSort : SMT.SortType) → (lhs : SMT.Term lhsSort) →
+    (rhsSort : SMT.SortType) → (rhs : SMT.Term rhsSort) →
+    Option ((sort : SMT.SortType) × SMT.Term sort)
+  | .bv w, lhs, .bv w', rhs =>
+    if h : w = w' then some ⟨.bv w, .bvAdd lhs (h ▸ rhs)⟩ else none
+  | _, _, _, _ => none
+
+/--
+  Build the term of `smt.bv.neg`: the operand has to be a bit-vector, and the result preserves its
+  sort.
+-/
+def SMT.bvNegTerm? : (operandSort : SMT.SortType) → (operand : SMT.Term operandSort) →
+    Option ((sort : SMT.SortType) × SMT.Term sort)
+  | .bv w, operand => some ⟨.bv w, .bvNeg operand⟩
+  | .bool, _ => none
+
+/--
+  Build the term of `smt.eq`: the two operands have to have the same SMT sort and the result is
+  always an `!smt.bool`.
+-/
+def SMT.eqTerm? : (lhsSort : SMT.SortType) → (lhs : SMT.Term lhsSort) →
+    (rhsSort : SMT.SortType) → (rhs : SMT.Term rhsSort) →
+    Option ((sort : SMT.SortType) × SMT.Term sort)
+  | s, lhs, s', rhs => if h : s = s' then some ⟨.bool, .eq s lhs (h ▸ rhs)⟩ else none
+
+/--
   Build a symbolic expression.
+
+  The operands arrive type-erased, so the sorts they carry have to be checked against the
+  invariants of the operation before a term node can be built, and the term has to be checked
+  against the declared result type. These checks are not redundant with
+  `verifyLocalInvariants`: interpretation is total and failing interpretation is its only way to
+  reject malformed IR, and it is these checks that discharge `interpretOp'_ne_fail` and
+  `interpretOp'_results_conform`. What the indexed `Term` removes are the checks about the
+  well-sortedness of the terms themselves: `Term.bvAdd` cannot be applied to operands of different
+  sorts, and the sort of the node it builds is the sort of its operands.
 -/
 def SMT.interpretOp' (opType : SMT) (_properties : SMT.propertiesOf opType)
     (resultTypes : Array TypeAttr) (operands : Array RuntimeValue)
@@ -123,27 +160,23 @@ def SMT.interpretOp' (opType : SMT) (_properties : SMT.propertiesOf opType)
     : Interp ((Array RuntimeValue) × Option ControlFlowAction) :=
   match opType with
   | .bv__add => do
-    let [.smt lhs, .smt rhs] := operands.toList | none
-    let some width := lhs.bvWidth? | none
-    if rhs.bvWidth? ≠ some width then none
-    let some resType := resultTypes[0]? | none
-    let expected : TypeAttr := TypeAttr.of SMT.SortType (.bv width)
-    if resType.val ≠ expected.val then none
-    return (#[.smt (.bvAdd width lhs rhs)], none)
+    let [.smt lhsSort lhs, .smt rhsSort rhs] := operands.toList | none
+    let some ⟨sort, term⟩ := SMT.bvAddTerm? lhsSort lhs rhsSort rhs | none
+    let some resultType := resultTypes[0]? | none
+    if resultType.smtSort? ≠ some sort then none
+    return (#[.smt sort term], none)
   | .bv__neg => do
-    let [.smt operand] := operands.toList | none
-    let some width := operand.bvWidth? | none
-    let some resType := resultTypes[0]? | none
-    let expected : TypeAttr := TypeAttr.of SMT.SortType (.bv width)
-    if resType.val ≠ expected.val then none
-    return (#[.smt (.bvNeg width operand)], none)
+    let [.smt operandSort operand] := operands.toList | none
+    let some ⟨sort, term⟩ := SMT.bvNegTerm? operandSort operand | none
+    let some resultType := resultTypes[0]? | none
+    if resultType.smtSort? ≠ some sort then none
+    return (#[.smt sort term], none)
   | .eq => do
-    let [.smt lhs, .smt rhs] := operands.toList | none
-    if lhs.sort ≠ rhs.sort then none
-    let some resType := resultTypes[0]? | none
-    let expected : TypeAttr := TypeAttr.of SMT.SortType .bool
-    if resType.val ≠ expected.val then none
-    return (#[.smt (.eq lhs rhs)], none)
+    let [.smt lhsSort lhs, .smt rhsSort rhs] := operands.toList | none
+    let some ⟨sort, term⟩ := SMT.eqTerm? lhsSort lhs rhsSort rhs | none
+    let some resultType := resultTypes[0]? | none
+    if resultType.smtSort? ≠ some sort then none
+    return (#[.smt sort term], none)
 
 instance : HasOpInfo SMT where
   verifyLocalInvariants := SMT.verifyLocalInvariants

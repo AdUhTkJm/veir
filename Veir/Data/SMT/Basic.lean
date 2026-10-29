@@ -11,33 +11,30 @@ public section
 /--
   The operational semantics of SMT terms are defined to be a symbolic AST.
 -/
-inductive Term where
-| bvConst (width : Nat) (value : BitVec width)
-| bvVar (width : Nat) (name : String)
-| bvAdd (width : Nat) (lhs rhs : Term)
-| bvNeg (width : Nat) (operand : Term)
-| eq (lhs rhs : Term)
-deriving Inhabited, Repr, Hashable, BEq, DecidableEq
+inductive Term : SortType → Type where
+| bvConst {w : Nat} (value : BitVec w) : Term (.bv w)
+| bvVar {w : Nat} (name : String) : Term (.bv w)
+| bvAdd {w : Nat} (lhs rhs : Term (.bv w)) : Term (.bv w)
+| bvNeg {w : Nat} (operand : Term (.bv w)) : Term (.bv w)
+/-- `s` cannot be implicit, since it can't be inferred from `.bool`. -/
+| eq (s : SortType) (lhs rhs : Term s) : Term .bool
+deriving Repr, BEq, Hashable, DecidableEq
 
-def Term.sort : Term → SortType
-  | .bvConst width _ => .bv width
-  | .bvVar width _ => .bv width
-  | .bvAdd width _ _ => .bv width
-  | .bvNeg width _ => .bv width
-  | .eq _ _ => .bool
-
-def Term.bvWidth? (term : Term) : Option Nat := term.sort.bvWidth?
+instance : Inhabited (Term s) where
+  default := match s with
+    | .bool => .eq (SortType.bv 0) (.bvConst 0) (.bvConst 0)
+    | .bv _ => .bvConst default
 
 /-- Print a term in SMT-LIB syntax. -/
-def Term.toString : Term → String
-  | .bvConst width value => s!"(_ bv{value.toNat} {width})"
-  | .bvVar _ name => name
-  | .bvAdd _ lhs rhs => s!"(bvadd {Term.toString lhs} {Term.toString rhs})"
-  | .bvNeg _ operand => s!"(bvneg {Term.toString operand})"
-  | .eq lhs rhs => s!"(= {Term.toString lhs} {Term.toString rhs})"
+def Term.toString : (s : SortType) → Term s → String
+  | .bv w, .bvConst value => s!"(_ bv{value.toNat} {w})"
+  | _, .bvVar name => name
+  | _, .bvAdd lhs rhs => s!"(bvadd {Term.toString _ lhs} {Term.toString _ rhs})"
+  | _, .bvNeg operand => s!"(bvneg {Term.toString _ operand})"
+  | .bool, .eq _ lhs rhs => s!"(= {Term.toString _ lhs} {Term.toString _ rhs})"
 
-instance : ToString Term where
-  toString := Term.toString
+instance : ToString (Term s) where
+  toString := Term.toString s
 
 end
 

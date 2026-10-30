@@ -2,6 +2,7 @@ module
 
 public import CTree.Order
 public import CTree.Defs
+public import CTree.UB
 public import CTree.Iter
 public import CTree.Interp
 
@@ -19,7 +20,7 @@ Simulation between ctrees: the rhs should have at least all
 the behaviors of the lhs.
 The simulation is parameterized by a relation on return values.
 -/
-axiom Sim (RR : R → R' → Prop) (t : CTree E C R) (u : CTree E C' R') : Prop
+axiom Sim [UB : HasUB EIn] (RR : R → R' → Prop) (t : CTree E C R) (u : CTree E C' R') : Prop
 
 namespace Sim
 
@@ -46,6 +47,10 @@ axiom tau_id (i : C1In ⊕ CIn) (k : (C1 ⊕ₑ C) i → CTree E C R) (k' : (C1 
 axiom vis (i : EIn) [Inhabited (E i)] (k : E i → CTree E C R) (k' : E i → CTree E C' R') :
   (∀ x, Sim RR (k x) (k' x)) →
   Sim RR (CTree.vis i k) (CTree.vis i k')
+
+axiom ub (e : EIn) :
+  @HasUB.isUB _ UB e →
+  Sim RR t (CTree.vis e k)
 
 axiom bind {RR RR'} (t : CTree E C X) (u : CTree E C' X') (k : X → CTree E C Y) (k' : X' → CTree E C' Y') :
   Sim RR t u →
